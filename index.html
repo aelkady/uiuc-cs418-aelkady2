@@ -2,14 +2,16 @@
 <html> 
 
 <script src="unit teapot.js"></script>
-
+<script src="unit plane.js"></script>
 <script src="gl-matrix-min.js"></script>
 
 <script>
 var gl;
-var teapotShaderProgramInfo;
+var drawingShaderProgramInfo;
 var teapot_vao;
-var Textures;
+var teapotBuffer;
+var plane_vao;
+var planeBuffer;
 
 //
 // a vertex shader implemented as a backquoted string variable
@@ -60,8 +62,9 @@ in vec3 vNormal;
 in vec3 vPosition;
 in vec3 normal;
 in vec4 modelViewPosition;
-uniform sampler2D uSampler;
-uniform sampler2D uSampler2;
+uniform sampler2D uIlllinoisSampler;
+uniform sampler2D uStadiumSampler;
+uniform bool isPlane;
 
 out vec4 outColor;
     
@@ -70,8 +73,8 @@ void main() {
   illinoisTexCoord.s = 1.0-((atan(vPosition.z, vPosition.x))/(2.0*M_PI));
   illinoisTexCoord.t = (vPosition.y+0.25)/0.5;
   vec2 stadiumTexCoord = (normal.xy + 1.0)/2.0;
-  vec4 illinois = TEXTURE2D(uSampler, illinoisTexCoord);
-  vec4 stadium = TEXTURE2D(uSampler2, stadiumTexCoord);
+  vec4 illinois = TEXTURE2D(uIlllinoisSampler, illinoisTexCoord);
+  vec4 stadium = TEXTURE2D(uStadiumSampler, stadiumTexCoord);
 
   vec3 normalizedNormal = normalize(normal);
   vec3 lighting;
@@ -99,7 +102,7 @@ void main() {
 }
 `;
 
-function loadshaders(vertexShaderSource,fragmentShaderSource) {
+function loadshaders(vertexShaderSource, fragmentShaderSource) {
   var vertexShader = gl.createShader(gl.VERTEX_SHADER);
   gl.shaderSource(vertexShader, vertexShaderSource);
   gl.compileShader(vertexShader);
@@ -113,7 +116,7 @@ function loadshaders(vertexShaderSource,fragmentShaderSource) {
     alert("Fragment Shader Error:\n" + gl.getShaderInfoLog(fragmentShader));
 
   //
-  // Compile shaders and get link ID's to the attributes and uniforms
+  // Compile shaders
   //
 
   var shaderProgram = gl.createProgram();
@@ -126,12 +129,10 @@ function loadshaders(vertexShaderSource,fragmentShaderSource) {
   return shaderProgram
 }
 
-function bindAndEnableArrayBuffer(dimension, array, glProperty) {
-  var buffer = gl.createBuffer();
-
+function bindAndEnableArrayBuffer(buffer, dimension, array, glProperty) {
   gl.bindBuffer(
     gl.ARRAY_BUFFER,
-    gl.createBuffer()
+    buffer
   );
 
   gl.bufferData(
@@ -150,8 +151,6 @@ function bindAndEnableArrayBuffer(dimension, array, glProperty) {
     0,
     0
   );
-
-  return buffer; 
 }
 
 function bindElementArrayBuffer(array) {
@@ -232,12 +231,45 @@ function normalizeTeapotNormals() {
   }
 }
 
-function initwebgl() {
+function initShape(shape, vertexBuffer) {
+  // set up vertex array object
+ 
+  var shape_vao = gl.createVertexArray();
+  gl.bindVertexArray(shape_vao);
 
+  // create a coordinate buffer of vertex positions and
+  // connect it to the vertex shader positions
+
+  bindAndEnableArrayBuffer(
+    vertexBuffer,
+    3,
+    shape.positions,
+    drawingShaderProgramInfo.attributeLocations.vertexPosition
+  );
+
+  // create a coordinate buffer of vertex positions and
+  // connect it to the vertex shader positions
+  // but normalize the normals first
+
+  normalizeTeapotNormals();
+  bindAndEnableArrayBuffer(
+    gl.createBuffer(),
+    3,
+    shape.normals,
+    drawingShaderProgramInfo.attributeLocations.vertexNormal
+  );
+
+  // create an index buffer of triangle faces
+  
+  bindElementArrayBuffer(shape.faces);
+
+  return shape_vao
+}
+
+function initwebgl() {
   //
   // create a graphics context
   //
-
   var canvas = document.getElementById("myGLCanvas");
   gl = canvas.getContext("webgl2");
   if (!gl)
@@ -247,7 +279,7 @@ function initwebgl() {
 
   var shaderProgram = loadshaders(vs,fs);
 
-  teapotShaderProgramInfo = {
+  drawingShaderProgramInfo = {
     program: shaderProgram,
     attributeLocations: {
       vertexPosition: gl.getAttribLocation(shaderProgram, 'aVertexPosition'),
@@ -258,40 +290,17 @@ function initwebgl() {
       modelMatrix: gl.getUniformLocation(shaderProgram, 'uModelMatrix'),
       viewMatrix: gl.getUniformLocation(shaderProgram, 'uViewMatrix'),
       normalMatrix: gl.getUniformLocation(shaderProgram, 'uNormalMatrix'),
-      uSampler: gl.getUniformLocation(shaderProgram, 'uSampler'),
-      uSampler2: gl.getUniformLocation(shaderProgram, 'uSampler2'),
+      uIllinoisSampler: gl.getUniformLocation(shaderProgram, 'uIlliniosSampler'),
+      uStadiumSampler: gl.getUniformLocation(shaderProgram, 'uStadiumSampler'),
       isPlane: gl.getUniformLocation(shaderProgram, 'isPlane')
     },
   };
 
-  // set up vertex array object
- 
-  teapot_vao = gl.createVertexArray();
-  gl.bindVertexArray(teapot_vao);
+  teapotBuffer = gl.createBuffer();
+  teapot_vao = initShape(teapot, teapotBuffer)
 
-  // create a coordinate buffer of vertex positions and
-  // connect it to the vertex shader positions
-
-  bindAndEnableArrayBuffer(
-    3,
-    teapot.positions,
-    teapotShaderProgramInfo.attributeLocations.vertexPosition
-  );
-
-  // create a coordinate buffer of vertex positions and
-  // connect it to the vertex shader positions
-  // but normalize the normals first
-
-  normalizeTeapotNormals();
-  bindAndEnableArrayBuffer(
-    3,
-    teapot.normals,
-    teapotShaderProgramInfo.attributeLocations.vertexNormal
-  );
-
-  // create an index buffer of triangle faces
-  
-  bindElementArrayBuffer(teapot.faces);
+  planeBuffer = gl.createBuffer()
+  plane_vao = initShape(plane, planeBuffer)
 
   //
   // set up textures
@@ -301,8 +310,8 @@ function initwebgl() {
     illinoisImageTexture: createImageTexture("illinois512.png", 512, 0),
     stadiumImageTexture: createImageTexture("stadium sphere.jpg", 256, 1),
     bind: function() {
-        gl.uniform1i(teapotShaderProgramInfo.uniformLocations.uSampler,0);
-        gl.uniform1i(teapotShaderProgramInfo.uniformLocations.uSampler2,1);
+        gl.uniform1i(drawingShaderProgramInfo.uniformLocations.uIllinoisSampler,0);
+        gl.uniform1i(drawingShaderProgramInfo.uniformLocations.uStadiumSampler,1);
 
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, Textures.illinoisImageTexture);
@@ -314,8 +323,26 @@ function initwebgl() {
   requestAnimationFrame(draw);
 }
 
-function drawTeapot() {
+function drawPlane(time) {
+  Matrices.bind(time, Matrices.PlaneModel())
+  gl.bindVertexArray(plane_vao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, planeBuffer);
+  gl.vertexAttribPointer(drawingShaderProgramInfo.attributeLocations.vertexPosition, 3, gl.FLOAT, false, 0, 0);
+  gl.enableVertexAttribArray(drawingShaderProgramInfo.attributeLocations.vertexPosition);
+  gl.drawElements(
+    gl.TRIANGLES,
+    plane.faces.length,
+    gl.UNSIGNED_SHORT,
+    0
+  );
+}
+
+function drawTeapot(time) {
+  Matrices.bind(time, Matrices.TeapotModel(time))
   gl.bindVertexArray(teapot_vao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, teapotBuffer);
+  gl.vertexAttribPointer(drawingShaderProgramInfo.attributeLocations.vertexPosition, 3, gl.FLOAT, false, 0, 0);
+  gl.enableVertexAttribArray(drawingShaderProgramInfo.attributeLocations.vertexPosition);
   gl.drawElements(
     gl.TRIANGLES,
     teapot.faces.length,
@@ -330,7 +357,13 @@ const Matrices = {
     glMatrix.mat4.perspective(projection, Math.PI/6, 1.0, 0.1);
     return projection;
   },
-  Model: function(time) {
+  PlaneModel: function() {
+    var model = glMatrix.mat4.create();
+    glMatrix.mat4.scale(model,model,[0.8,0.8,0.8]);
+    glMatrix.mat4.translate(model,model,[0.15, 0.1, -2.25]);
+    return model
+  },
+  TeapotModel: function(time) {
     var model = glMatrix.mat4.create();
     glMatrix.mat4.scale(model,model,[0.89,0.89,0.89]);
     glMatrix.mat4.translate(model,model,[0, 0.3, -2.25]);
@@ -350,18 +383,17 @@ const Matrices = {
     glMatrix.mat3.normalFromMat4(normal, modelView);
     return normal
   },
-  bind: function(time) {
+  bind: function(time, model) {
     //
     // set up transformation matrices
     //
-    var model = Matrices.Model(time);
-    gl.uniformMatrix4fv(teapotShaderProgramInfo.uniformLocations.modelMatrix, false, model);
+    gl.uniformMatrix4fv(drawingShaderProgramInfo.uniformLocations.modelMatrix, false, model);
     var view = Matrices.View();
-    gl.uniformMatrix4fv(teapotShaderProgramInfo.uniformLocations.viewMatrix, false, view);
+    gl.uniformMatrix4fv(drawingShaderProgramInfo.uniformLocations.viewMatrix, false, view);
     var modelView = glMatrix.mat4.create();
     glMatrix.mat4.multiply(modelView, view, model)
-    gl.uniformMatrix3fv(teapotShaderProgramInfo.uniformLocations.normalMatrix, false, Matrices.Normal(modelView));
-    gl.uniformMatrix4fv(teapotShaderProgramInfo.uniformLocations.projectionMatrix, false, Matrices.Projection());
+    gl.uniformMatrix3fv(drawingShaderProgramInfo.uniformLocations.normalMatrix, false, Matrices.Normal(modelView));
+    gl.uniformMatrix4fv(drawingShaderProgramInfo.uniformLocations.projectionMatrix, false, Matrices.Projection());
   }
 };
 
@@ -379,10 +411,10 @@ function clearGL() {
 
 function draw(time) {
   clearGL()
-  gl.useProgram(teapotShaderProgramInfo.program);
-  Matrices.bind(time)
+  gl.useProgram(drawingShaderProgramInfo.program);
   Textures.bind();
-  drawTeapot();
+  drawTeapot(time);
+  drawPlane(time);
   requestAnimationFrame(draw);
 }
 
