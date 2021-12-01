@@ -69,6 +69,21 @@ uniform bool isPlane;
 out vec4 outColor;
     
 void main() {
+  vec3 normalizedNormal = normalize(normal);
+  vec3 eyeDirection = normalize(-modelViewPosition.xyz);
+
+  if (isPlane) {
+    vec3 seeligerLightSourceLocation = vec3(0.0,3.0,-2.25);
+    vec3 seeligerLightDirection = normalize(seeligerLightSourceLocation - modelViewPosition.xyz);
+    float seeligerLightComponent = max(dot(normalizedNormal, seeligerLightSourceLocation), 0.0);
+    float seeligerLighting = seeligerLightComponent / (seeligerLightComponent + max(dot(normalizedNormal, eyeDirection), 0.0));
+    vec3 white = vec3(1.0, 1.0, 1.0);
+    vec4 seeligerColor = vec4(white,1.0);
+    vec4 c = vec4(seeligerColor.rgb * seeligerLighting, seeligerColor.a);
+    outColor = c;
+    return;
+  }
+
   vec2 illinoisTexCoord;
   illinoisTexCoord.s = 1.0-((atan(vPosition.z, vPosition.x))/(2.0*M_PI));
   illinoisTexCoord.t = (vPosition.y+0.25)/0.5;
@@ -76,13 +91,11 @@ void main() {
   vec4 illinois = TEXTURE2D(uIlllinoisSampler, illinoisTexCoord);
   vec4 stadium = TEXTURE2D(uStadiumSampler, stadiumTexCoord);
 
-  vec3 normalizedNormal = normalize(normal);
   vec3 lighting;
 
   float ks = 0.6;
   vec3 specularLightSourceLocation = vec3(3.5,0.0,3.0);
   vec3 specularLightDirection = normalize(specularLightSourceLocation - modelViewPosition.xyz);
-  vec3 eyeDirection = normalize(-modelViewPosition.xyz);
   vec3 specularReflectionDirection = reflect(-specularLightDirection, normalizedNormal);
   float specularLightComponent = pow(max(dot(specularReflectionDirection, eyeDirection), 0.0), 20.0);
 
@@ -329,6 +342,7 @@ function drawPlane(time) {
   gl.bindBuffer(gl.ARRAY_BUFFER, planeBuffer);
   gl.vertexAttribPointer(drawingShaderProgramInfo.attributeLocations.vertexPosition, 3, gl.FLOAT, false, 0, 0);
   gl.enableVertexAttribArray(drawingShaderProgramInfo.attributeLocations.vertexPosition);
+  gl.uniform1i(drawingShaderProgramInfo.uniformLocations.isPlane,true);
   gl.drawElements(
     gl.TRIANGLES,
     plane.faces.length,
@@ -343,6 +357,7 @@ function drawTeapot(time) {
   gl.bindBuffer(gl.ARRAY_BUFFER, teapotBuffer);
   gl.vertexAttribPointer(drawingShaderProgramInfo.attributeLocations.vertexPosition, 3, gl.FLOAT, false, 0, 0);
   gl.enableVertexAttribArray(drawingShaderProgramInfo.attributeLocations.vertexPosition);
+  gl.uniform1i(drawingShaderProgramInfo.uniformLocations.isPlane,false);
   gl.drawElements(
     gl.TRIANGLES,
     teapot.faces.length,
