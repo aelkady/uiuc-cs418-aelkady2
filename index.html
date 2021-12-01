@@ -27,18 +27,20 @@ uniform mat4 uViewMatrix;
 uniform mat3 uNormalMatrix;
 uniform mat4 uProjectionMatrix;
 
-out vec3 vNormal;
 out vec3 vPosition;
-out vec3 normal;
-out vec4 modelViewPosition;
+out vec3 vModelPosition;
+out vec3 vNormalNormal;
+out vec4 vModelViewPosition;
+out vec3 vModelNormal;
 
 void main() {
-  vNormal = aVertexNormal;
   vPosition = aVertexPosition;
-  normal = uNormalMatrix*aVertexNormal;
-  modelViewPosition = uViewMatrix*uModelMatrix*vec4(aVertexPosition, 1.0);
+  vNormalNormal = uNormalMatrix*aVertexNormal;
+  vModelPosition = mat3(uModelMatrix) * aVertexPosition;
+  vModelViewPosition = uViewMatrix * uModelMatrix * vec4(aVertexPosition, 1.0);
+  vModelNormal = normalize(mat3(uModelMatrix) * aVertexNormal);
 
-  gl_Position = uProjectionMatrix*modelViewPosition;
+  gl_Position = uProjectionMatrix*vModelViewPosition;
 }
 `;
 
@@ -47,6 +49,8 @@ void main() {
 //
 
 var fs = `#version 300 es
+
+#extension GL_OES_standard_derivatives : enable
 
 #define M_PI 3.1415926535
 
@@ -58,25 +62,48 @@ var fs = `#version 300 es
 
 precision mediump float;
     
-in vec3 vNormal;
 in vec3 vPosition;
-in vec3 normal;
-in vec4 modelViewPosition;
+in vec3 vModelPosition;
+in vec3 vNormalNormal;
+in vec4 vModelViewPosition;
+in vec3 vModelNormal;
+
+
 uniform sampler2D uIlllinoisSampler;
 uniform sampler2D uStadiumSampler;
+uniform sampler2D uBumpSampler;
 uniform bool isPlane;
 
 out vec4 outColor;
     
 void main() {
-  vec3 normalizedNormal = normalize(normal);
-  vec3 eyeDirection = normalize(-modelViewPosition.xyz);
+  vec3 eyeDirection = normalize(-vModelViewPosition.xyz);
 
   if (isPlane) {
-    vec3 seeligerLightSourceLocation = vec3(0.0,3.0,-2.25);
-    vec3 seeligerLightDirection = normalize(seeligerLightSourceLocation - modelViewPosition.xyz);
-    float seeligerLightComponent = max(dot(normalizedNormal, seeligerLightSourceLocation), 0.0);
-    float seeligerLighting = seeligerLightComponent / (seeligerLightComponent + max(dot(normalizedNormal, eyeDirection), 0.0));
+    vec3 normalizedModelNormal = normalize(vModelNormal);
+    vec2 bumpTexCoords = vPosition.xz;
+    vec3 dpds = dFdx(vModelPosition);
+    vec3 dpdt = dFdy(vModelPosition);
+    vec2 dTexCoords = dFdx(bumpTexCoords);
+    vec2 dTexCoordt = dFdy(bumpTexCoords);
+    vec3 sPerturb = cross(normalizedModelNormal, dpds);
+    vec3 tPerturb = cross(dpdt, normalizedModelNormal);
+    vec3 tangent = dTexCoordt.x * sPerturb + dTexCoords.x * tPerturb;
+    vec3 binomial = dTexCoordt.y * sPerturb + dTexCoords.y * tPerturb;
+    float maxInverseSqareRoot = inversesqrt(max(dot(binomial, binomial), dot(tangent, tangent)));
+
+    mat3 tangentMatrix = mat3(
+      tangent * maxInverseSqareRoot,
+      binomial * maxInverseSqareRoot,
+      normalizedModelNormal
+    );
+
+    mat3 inverseTangentMatrix = inverse(tangentMatrix);
+    vec3 bumppedNormals = normalize((TEXTURE2D(uBumpSampler, bumpTexCoords)).xyz * 2.0 - 1.0);
+    vec3 seeligerLightSourceLocation = vec3(0.0,2.0,-2.0);
+    vec3 seeligerLightDirection = inverseTangentMatrix * normalize(seeligerLightSourceLocation - vModelViewPosition.xyz);
+    float normalLightDot = max(dot(bumppedNormals, seeligerLightDirection), 0.0);
+    float seeligerLighting = normalLightDot / (normalLightDot + max(dot(bumppedNormals, eyeDirection), 0.0));
     vec3 white = vec3(1.0, 1.0, 1.0);
     vec4 seeligerColor = vec4(white,1.0);
     vec4 c = vec4(seeligerColor.rgb * seeligerLighting, seeligerColor.a);
@@ -87,21 +114,22 @@ void main() {
   vec2 illinoisTexCoord;
   illinoisTexCoord.s = 1.0-((atan(vPosition.z, vPosition.x))/(2.0*M_PI));
   illinoisTexCoord.t = (vPosition.y+0.25)/0.5;
-  vec2 stadiumTexCoord = (normal.xy + 1.0)/2.0;
+  vec2 stadiumTexCoord = (vNormalNormal.xy + 1.0)/2.0;
   vec4 illinois = TEXTURE2D(uIlllinoisSampler, illinoisTexCoord);
   vec4 stadium = TEXTURE2D(uStadiumSampler, stadiumTexCoord);
 
+  vec3 normalizedNormal = normalize(vNormalNormal);
   vec3 lighting;
 
   float ks = 0.6;
   vec3 specularLightSourceLocation = vec3(3.5,0.0,3.0);
-  vec3 specularLightDirection = normalize(specularLightSourceLocation - modelViewPosition.xyz);
+  vec3 specularLightDirection = normalize(specularLightSourceLocation - vModelViewPosition.xyz);
   vec3 specularReflectionDirection = reflect(-specularLightDirection, normalizedNormal);
   float specularLightComponent = pow(max(dot(specularReflectionDirection, eyeDirection), 0.0), 20.0);
 
   float kd = 0.8;
   vec3 diffuseLightSourceLocation = vec3(1.0,0.0,3.0);
-  vec3 diffuseLightDirection = normalize(diffuseLightSourceLocation - modelViewPosition.xyz);
+  vec3 diffuseLightDirection = normalize(diffuseLightSourceLocation - vModelViewPosition.xyz);
   float diffuseLightComponent = max(dot(normalizedNormal, diffuseLightDirection), 0.0);
 
   vec3 specularColor = vec3(0.5, 0.5, 0.5);
@@ -305,6 +333,7 @@ function initwebgl() {
       normalMatrix: gl.getUniformLocation(shaderProgram, 'uNormalMatrix'),
       uIllinoisSampler: gl.getUniformLocation(shaderProgram, 'uIlliniosSampler'),
       uStadiumSampler: gl.getUniformLocation(shaderProgram, 'uStadiumSampler'),
+      uBumpSampler: gl.getUniformLocation(shaderProgram, 'uBumpSampler'),
       isPlane: gl.getUniformLocation(shaderProgram, 'isPlane')
     },
   };
@@ -322,14 +351,18 @@ function initwebgl() {
   Textures = {
     illinoisImageTexture: createImageTexture("illinois512.png", 512, 0),
     stadiumImageTexture: createImageTexture("stadium sphere.jpg", 256, 1),
+    bumpImageTexture: createImageTexture("bumpMap.png", 512, 2),
     bind: function() {
         gl.uniform1i(drawingShaderProgramInfo.uniformLocations.uIllinoisSampler,0);
         gl.uniform1i(drawingShaderProgramInfo.uniformLocations.uStadiumSampler,1);
+        gl.uniform1i(drawingShaderProgramInfo.uniformLocations.uBumpSampler,2);
 
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, Textures.illinoisImageTexture);
         gl.activeTexture(gl.TEXTURE1);
         gl.bindTexture(gl.TEXTURE_2D, Textures.stadiumImageTexture);
+        gl.activeTexture(gl.TEXTURE2);
+        gl.bindTexture(gl.TEXTURE_2D, Textures.bumpImageTexture);
     },
   };
 
