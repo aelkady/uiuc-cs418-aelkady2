@@ -6,6 +6,7 @@
 <script src="gl-matrix-min.js"></script>
 
 <script>
+
 var gl;
 var drawingShaderProgramInfo;
 var teapot_vao;
@@ -35,12 +36,12 @@ out vec3 vModelNormal;
 
 void main() {
   vPosition = aVertexPosition;
-  vNormalNormal = uNormalMatrix*aVertexNormal;
   vModelPosition = mat3(uModelMatrix) * aVertexPosition;
+  vNormalNormal = uNormalMatrix*aVertexNormal;
   vModelViewPosition = uViewMatrix * uModelMatrix * vec4(aVertexPosition, 1.0);
   vModelNormal = normalize(mat3(uModelMatrix) * aVertexNormal);
 
-  gl_Position = uProjectionMatrix*vModelViewPosition;
+  gl_Position = uProjectionMatrix * vModelViewPosition;
 }
 `;
 
@@ -49,8 +50,6 @@ void main() {
 //
 
 var fs = `#version 300 es
-
-#extension GL_OES_standard_derivatives : enable
 
 #define M_PI 3.1415926535
 
@@ -68,7 +67,6 @@ in vec3 vNormalNormal;
 in vec4 vModelViewPosition;
 in vec3 vModelNormal;
 
-
 uniform sampler2D uIlllinoisSampler;
 uniform sampler2D uStadiumSampler;
 uniform sampler2D uBumpSampler;
@@ -80,8 +78,7 @@ void main() {
   vec3 eyeDirection = normalize(-vModelViewPosition.xyz);
 
   if (isPlane) {
-
-    // Procedural Texture
+    // Procedural Texture (Checkerboard)
     float s = vPosition.x;
     float t = vPosition.z;
     float scale = 8.0;
@@ -115,8 +112,8 @@ void main() {
     mat3 inverseTangentMatrix = inverse(tangentMatrix);
     vec3 bumppedNormals = normalize((TEXTURE2D(uBumpSampler, bumpTexCoords)).xyz * 2.0 - 1.0);
     vec3 seeligerLightSourceLocation = vec3(0.0,2.0,-2.0);
-    vec3 seeligerLightDirection = inverseTangentMatrix * normalize(seeligerLightSourceLocation - vModelViewPosition.xyz);
-    float normalLightDot = max(dot(bumppedNormals, seeligerLightDirection), 0.0);
+    vec3 adjustedSeeligerLightDirection = inverseTangentMatrix * normalize(seeligerLightSourceLocation - vModelViewPosition.xyz);
+    float normalLightDot = max(dot(bumppedNormals, adjustedSeeligerLightDirection), 0.0);
     vec3 seeligerColor = white * normalLightDot / (normalLightDot + max(dot(bumppedNormals, eyeDirection), 0.0));
     
 
@@ -126,8 +123,8 @@ void main() {
   }
 
   vec2 illinoisTexCoord;
-  illinoisTexCoord.s = 1.0-((atan(vPosition.z, vPosition.x))/(2.0*M_PI));
-  illinoisTexCoord.t = (vPosition.y+0.25)/0.5;
+  illinoisTexCoord.s = 1.0-((atan(vPosition.z, vPosition.x))/(2.0 * M_PI));
+  illinoisTexCoord.t = (vPosition.y + 0.25)/0.5;
   vec2 stadiumTexCoord = (vNormalNormal.xy + 1.0)/2.0;
   vec4 illinois = TEXTURE2D(uIlllinoisSampler, illinoisTexCoord);
   vec4 stadium = TEXTURE2D(uStadiumSampler, stadiumTexCoord);
@@ -270,9 +267,9 @@ function createImageTexture(imageName, imageDimension, index) {
   return texture;
 }
 
-function normalizeTeapotNormals() {
+function normalize(normals) {
   var x,y,z,d,i;
-  for (i = 0; i < teapot.normals.length; i += 3) {
+  for (i = 0; i < normals.length; i += 3) {
     x = teapot.normals[i];
     y = teapot.normals[i+1];
     z = teapot.normals[i+2];
@@ -306,7 +303,7 @@ function initShape(shape, vertexBuffer) {
   // connect it to the vertex shader positions
   // but normalize the normals first
 
-  normalizeTeapotNormals();
+  normalize(shape.normals);
   bindAndEnableArrayBuffer(
     gl.createBuffer(),
     3,
@@ -383,34 +380,17 @@ function initwebgl() {
   requestAnimationFrame(draw);
 }
 
-function drawPlane(time) {
-  Matrices.bind(time, Matrices.PlaneModel())
-  gl.bindVertexArray(plane_vao);
-  gl.bindBuffer(gl.ARRAY_BUFFER, planeBuffer);
-  gl.vertexAttribPointer(drawingShaderProgramInfo.attributeLocations.vertexPosition, 3, gl.FLOAT, false, 0, 0);
-  gl.enableVertexAttribArray(drawingShaderProgramInfo.attributeLocations.vertexPosition);
-  gl.uniform1i(drawingShaderProgramInfo.uniformLocations.isPlane,true);
-  gl.drawElements(
-    gl.TRIANGLES,
-    plane.faces.length,
-    gl.UNSIGNED_SHORT,
-    0
-  );
-}
+//
+// draw callback function that is passed to requestAnimationFrame()
+//
 
-function drawTeapot(time) {
-  Matrices.bind(time, Matrices.TeapotModel(time))
-  gl.bindVertexArray(teapot_vao);
-  gl.bindBuffer(gl.ARRAY_BUFFER, teapotBuffer);
-  gl.vertexAttribPointer(drawingShaderProgramInfo.attributeLocations.vertexPosition, 3, gl.FLOAT, false, 0, 0);
-  gl.enableVertexAttribArray(drawingShaderProgramInfo.attributeLocations.vertexPosition);
-  gl.uniform1i(drawingShaderProgramInfo.uniformLocations.isPlane,false);
-  gl.drawElements(
-    gl.TRIANGLES,
-    teapot.faces.length,
-    gl.UNSIGNED_SHORT,
-    0
-  );
+function draw(time) {
+  clearGL()
+  gl.useProgram(drawingShaderProgramInfo.program);
+  Textures.bind();
+  drawTeapot(time);
+  drawPlane(time);
+  requestAnimationFrame(draw);
 }
 
 const Matrices = {
@@ -445,7 +425,7 @@ const Matrices = {
     glMatrix.mat3.normalFromMat4(normal, modelView);
     return normal
   },
-  bind: function(time, model) {
+  bind: function(model) {
     //
     // set up transformation matrices
     //
@@ -459,25 +439,42 @@ const Matrices = {
   }
 };
 
+function drawPlane(time) {
+  Matrices.bind(Matrices.PlaneModel())
+  gl.bindVertexArray(plane_vao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, planeBuffer);
+  gl.vertexAttribPointer(drawingShaderProgramInfo.attributeLocations.vertexPosition, 3, gl.FLOAT, false, 0, 0);
+  gl.enableVertexAttribArray(drawingShaderProgramInfo.attributeLocations.vertexPosition);
+  gl.uniform1i(drawingShaderProgramInfo.uniformLocations.isPlane,true);
+  gl.drawElements(
+    gl.TRIANGLES,
+    plane.faces.length,
+    gl.UNSIGNED_SHORT,
+    0
+  );
+}
+
+function drawTeapot(time) {
+  Matrices.bind(Matrices.TeapotModel(time))
+  gl.bindVertexArray(teapot_vao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, teapotBuffer);
+  gl.vertexAttribPointer(drawingShaderProgramInfo.attributeLocations.vertexPosition, 3, gl.FLOAT, false, 0, 0);
+  gl.enableVertexAttribArray(drawingShaderProgramInfo.attributeLocations.vertexPosition);
+  gl.uniform1i(drawingShaderProgramInfo.uniformLocations.isPlane,false);
+  gl.drawElements(
+    gl.TRIANGLES,
+    teapot.faces.length,
+    gl.UNSIGNED_SHORT,
+    0
+  );
+}
+
 function clearGL() {
   gl.clearColor(0.075, 0.16, 0.294, 1.0);
   gl.clearDepth(1.0);
   gl.enable(gl.DEPTH_TEST);
   gl.depthFunc(gl.LEQUAL);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-}
-
-//
-// draw callback function that is passed to requestAnimationFrame()
-//
-
-function draw(time) {
-  clearGL()
-  gl.useProgram(drawingShaderProgramInfo.program);
-  Textures.bind();
-  drawTeapot(time);
-  drawPlane(time);
-  requestAnimationFrame(draw);
 }
 
 </script>
