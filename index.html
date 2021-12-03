@@ -402,13 +402,13 @@ const Matrices = {
   PlaneModel: function() {
     var model = glMatrix.mat4.create();
     glMatrix.mat4.scale(model,model,[0.8,0.8,0.8]);
-    glMatrix.mat4.translate(model,model,[0.15, 0.1, -2.25]);
+    glMatrix.mat4.translate(model,model,[0.15, 0.4, -2.25]);
     return model
   },
   TeapotModel: function(time) {
     var model = glMatrix.mat4.create();
-    glMatrix.mat4.scale(model,model,[0.89,0.89,0.89]);
-    glMatrix.mat4.translate(model,model,[0, 0.3, -2.25]);
+    glMatrix.mat4.scale(model,model,[0.8,0.8,0.8]);
+    glMatrix.mat4.translate(model,model,[0.2, 0.5, -2.5]);
     glMatrix.mat4.rotateY(model,model, time*0.001);
     return model
   },
